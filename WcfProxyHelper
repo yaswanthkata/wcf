@@ -17,17 +17,53 @@ using System.Reflection;
 using System.ServiceModel;
 using System.ServiceModel.Description;
 
-namespace WcfProxyGenerator
+namespace Test.Framework.Helper
 {
-    public class WcfProxyHelper
+    public class WebServiceProxyHelper
     {
-        //Method used to get the proxyinstance of the contract defined in the WSDL service
-        public object GetProxyInstance(ref CompilerResults compilerResults, string wsdlUri, string contractName)
+        //Purpose :Method for poplulating Testdata as input paramater and invoking the web service.Getting the response and Validating it with Validation data.
+        //Note :The Service DataCSV should have Columns with data as  MethodName for this method to fucntion properly.
+        public object GetResponse(Dictionary<string, object> serviceData, Dictionary<string, object> testData)
+        {
+            dynamic result = null;
+            try
+            {
+                CompilerResults compilerResults = null;
+                object proxyInstance = GetProxyInstance(ref compilerResults, serviceData);
+                // Get the operation's method
+                var methodInfo = proxyInstance.GetType().GetMethod(serviceData["MethodName"].ToString());
+                ParameterInfo[] paramInfos = methodInfo.GetParameters();
+                var parameterType = paramInfos[0].ParameterType;
+                var parameter = compilerResults.CompiledAssembly.CreateInstance(parameterType.FullName, false, BindingFlags.CreateInstance, null, null, null, null);
+
+                if (parameterType.FullName =="System.String")
+                {
+                    parameter = "India";
+                }
+                ////Creating the instance of Paramater type
+                //if (parameter != null)
+                //{
+                //    RecursiveLoad(parameter, testData, compilerResults);
+                //}
+                object[] operationParameters = new object[] { parameter };
+                //Invokes service method and get the result.
+                result = methodInfo.Invoke(proxyInstance, BindingFlags.InvokeMethod, null, operationParameters, null);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(ex.Message+ex.StackTrace);
+            }
+            return result;
+        }
+
+        //Creates proxy instance for the serivce.
+        //Note :The Service DataCSV should have Columns with data as  WsdlUri,ContractName for this method to fucntion properly.
+        private object GetProxyInstance(ref CompilerResults compilerResults,Dictionary<string,object> serviceData )
         {
             object proxyInstance = null;
 
             // Define the WSDL Get address, contract name and parameters, with this we can extract WSDL details any time
-            Uri address = new Uri(wsdlUri);
+            Uri address = new Uri(serviceData["WsdlUri"].ToString());
             // For HttpGet endpoints use a Service WSDL address a mexMode of .HttpGet and for MEX endpoints use a MEX address and a mexMode of .MetadataExchange
             MetadataExchangeClientMode mexMode = MetadataExchangeClientMode.HttpGet;
 
@@ -56,6 +92,7 @@ namespace WcfProxyGenerator
 
             //Dictinary has been defined to keep all the contract endpoints present, contract name is key of the dictionary item.
             var endpointsForContracts = new Dictionary<string, IEnumerable<ServiceEndpoint>>();
+            string contractName = serviceData["ContractName"].ToString();
 
             foreach (ContractDescription contract in contracts)
             {
@@ -96,28 +133,50 @@ namespace WcfProxyGenerator
             return proxyInstance;
         }
 
-        //Method to return all the methods from a wsdlUri based on the given contract
-        public IEnumerable<MethodInfo> GetMethods(string wsdlUri, string contractName)
+        //Recursive method to load the test data into input parameter .
+        private  void RecursiveLoad(object instance, Dictionary<string, object> dataDic, CompilerResults compilerResults)
         {
-            try
+            foreach (var property in instance.GetType().GetProperties())
             {
-                CompilerResults compilerResults = null;
-                object proxyInstance = GetProxyInstance(ref compilerResults, wsdlUri, contractName);
-                if (proxyInstance != null)
+                if ((dataDic.Keys.Contains(property.Name) || dataDic.Keys.Contains(instance.GetType().Name + "." + property.Name )))
                 {
-                    var proxyType = proxyInstance.GetType();
-                    return proxyType.GetMethods().Where(x =>
-                                                         !x.IsSpecialName &&
-                                                          x.DeclaringType == proxyType &&
-                                                          x.ReturnType != typeof(void)
-                                                        );
+                    if (property.PropertyType.IsEnum)
+                    {
+                        property.SetValue(instance, Enum.ToObject(property.PropertyType, Convert.ToInt32(dataDic[property.Name])));
+                    }
+                //Loading normal properties/fields
+                    else if (Nullable.GetUnderlyingType(property.PropertyType)!=null)
+                    {
+                        if (Nullable.GetUnderlyingType(property.PropertyType).Name == "DateTime")
+                        {
+                            DateTime tempVal;
+                            DateTime value = DateTime.TryParse(dataDic[property.Name].ToString(), out tempVal) ? tempVal : DateTime.UtcNow;
+                            property.SetValue(instance, value);
+                        }
+                        else
+                        {
+                            int tempVal;
+                            int? value = Int32.TryParse(dataDic[property.Name].ToString(), out tempVal) ? tempVal : (int?)null;
+                            property.SetValue(instance, value);
+                        }
+                    }
+                    else
+                    {
+                        var value = Convert.ChangeType(dataDic[property.Name], property.PropertyType);
+                        property.SetValue(instance, value, null);
+                    }
+                    continue;
+                }
+               //Loading Nested properties 
+                if (property.PropertyType.IsClass && property.PropertyType != typeof(string) && !property.PropertyType.FullName.Contains("System.Runtime"))
+                {
+                    var innerInstance = compilerResults.CompiledAssembly.CreateInstance(property.PropertyType.FullName, false, BindingFlags.CreateInstance, null, null, null, null);
+                    RecursiveLoad(innerInstance, dataDic, compilerResults);
+                    property.SetValue(instance, innerInstance, null);
                 }
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine(ex.Message + ex.StackTrace);
-            }
-            return null;
         }
+        //Recursive method to vaalidate the response iwth the validation data.
+
     }
 }

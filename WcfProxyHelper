@@ -1,0 +1,123 @@
+/*********************************************************************************************************************
+	Name: 	Generic WebServiceProxyHelper  
+
+	Desc: 	A Web Proxy helper to create a proxy based on the Given wsdl
+
+	Auth: 	Yaswanth Kata
+	NOTE:	
+
+**********************************************************************************************************************/
+using System;
+using System.CodeDom.Compiler;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Globalization;
+using System.Linq;
+using System.Reflection;
+using System.ServiceModel;
+using System.ServiceModel.Description;
+
+namespace WcfProxyGenerator
+{
+    public class WcfProxyHelper
+    {
+        //Method used to get the proxyinstance of the contract defined in the WSDL service
+        public object GetProxyInstance(ref CompilerResults compilerResults, string wsdlUri, string contractName)
+        {
+            object proxyInstance = null;
+
+            // Define the WSDL Get address, contract name and parameters, with this we can extract WSDL details any time
+            Uri address = new Uri(wsdlUri);
+            // For HttpGet endpoints use a Service WSDL address a mexMode of .HttpGet and for MEX endpoints use a MEX address and a mexMode of .MetadataExchange
+            MetadataExchangeClientMode mexMode = MetadataExchangeClientMode.HttpGet;
+
+            // Get the metadata file from the service.
+            MetadataExchangeClient metadataExchangeClient = new MetadataExchangeClient(address, mexMode);
+            metadataExchangeClient.ResolveMetadataReferences = true;
+
+            //One can also provide credentials if service needs that by the help following two lines.
+            //ICredentials networkCredential = new NetworkCredential("", "", "");
+            //metadataExchangeClient.HttpCredentials = networkCredential;
+
+            //Gets the meta data information of the service.
+            MetadataSet metadataSet = metadataExchangeClient.GetMetadata();
+
+            // Import all contracts and endpoints.
+            WsdlImporter wsdlImporter = new WsdlImporter(metadataSet);
+
+            //Import all contracts.
+            Collection<ContractDescription> contracts = wsdlImporter.ImportAllContracts();
+
+            //Import all end points.
+            ServiceEndpointCollection allEndpoints = wsdlImporter.ImportAllEndpoints();
+
+            // Generate type information for each contract.
+            ServiceContractGenerator serviceContractGenerator = new ServiceContractGenerator();
+
+            //Dictinary has been defined to keep all the contract endpoints present, contract name is key of the dictionary item.
+            var endpointsForContracts = new Dictionary<string, IEnumerable<ServiceEndpoint>>();
+
+            foreach (ContractDescription contract in contracts)
+            {
+                serviceContractGenerator.GenerateServiceContractType(contract);
+                // Keep a list of each contract's endpoints.
+                endpointsForContracts[contract.Name] = allEndpoints.Where(ep => ep.Contract.Name == contract.Name).ToList();
+            }
+
+            // Generate a code file for the contracts.
+            CodeGeneratorOptions codeGeneratorOptions = new CodeGeneratorOptions();
+            codeGeneratorOptions.BracingStyle = "C";
+
+            // Create Compiler instance of a specified language.
+            CodeDomProvider codeDomProvider = CodeDomProvider.CreateProvider("C#");
+
+            // Adding WCF-related assemblies references as copiler parameters, so as to do the compilation of particular service contract.
+            CompilerParameters compilerParameters = new CompilerParameters(new string[] { "System.dll", "System.ServiceModel.dll", "System.Runtime.Serialization.dll" });
+            compilerParameters.GenerateInMemory = true;
+
+            //Gets the compiled assembly.
+            compilerResults = codeDomProvider.CompileAssemblyFromDom(compilerParameters, serviceContractGenerator.TargetCompileUnit);
+
+            if (compilerResults.Errors.Count <= 0)
+            {
+                // Find the proxy type that was generated for the specified contract (identified by a class that implements the contract and ICommunicationbject - this is contract
+                //implemented by all the communication oriented objects).
+                Type proxyType = compilerResults.CompiledAssembly.GetTypes().First(t => t.IsClass && t.GetInterface(contractName) != null &&
+                    t.GetInterface(typeof(ICommunicationObject).Name) != null);
+
+                // Now we get the first service endpoint for the particular contract.
+                ServiceEndpoint serviceEndpoint = endpointsForContracts[contractName].First();
+
+                // Create an instance of the proxy by passing the endpoint binding and address as parameters.
+                proxyInstance = compilerResults.CompiledAssembly.CreateInstance(proxyType.Name, false, BindingFlags.CreateInstance, null,
+                    new object[] { serviceEndpoint.Binding, serviceEndpoint.Address }, CultureInfo.CurrentCulture, null);
+            }
+
+            return proxyInstance;
+        }
+
+        //Method to return all the methods from a wsdlUri based on the given contract
+        public IEnumerable<MethodInfo> GetMethods(string wsdlUri, string contractName)
+        {
+            try
+            {
+                CompilerResults compilerResults = null;
+                object proxyInstance = GetProxyInstance(ref compilerResults, wsdlUri, contractName);
+                if (proxyInstance != null)
+                {
+                    var proxyType = proxyInstance.GetType();
+                    return proxyType.GetMethods().Where(x =>
+                                                         !x.IsSpecialName &&
+                                                          x.DeclaringType == proxyType &&
+                                                          x.ReturnType != typeof(void)
+                                                        );
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(ex.Message + ex.StackTrace);
+            }
+            return null;
+        }
+    }
+}

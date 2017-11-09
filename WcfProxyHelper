@@ -1,9 +1,11 @@
 /*********************************************************************************************************************
 	Name: 	Generic WebServiceProxyHelper  
 
-	Desc: 	A Web Proxy helper to create a proxy based on the Given wsdl
+	Desc: 	A Web Proxy helper to create a proxy based on the Given wsdl and contract and gets response.
 
 	Auth: 	Yaswanth Kata
+	Date: 	01/06/2015
+
 	NOTE:	
 
 **********************************************************************************************************************/
@@ -23,7 +25,7 @@ namespace Test.Framework.Helper
     {
         //Purpose :Method for poplulating Testdata as input paramater and invoking the web service.Getting the response and Validating it with Validation data.
         //Note :The Service DataCSV should have Columns with data as  MethodName for this method to fucntion properly.
-        public object GetResponse(Dictionary<string, object> serviceData, Dictionary<string, object> testData)
+        public object GetResponse(Dictionary<string, object> serviceData, string parameter)
         {
             dynamic result = null;
             try
@@ -32,19 +34,6 @@ namespace Test.Framework.Helper
                 object proxyInstance = GetProxyInstance(ref compilerResults, serviceData);
                 // Get the operation's method
                 var methodInfo = proxyInstance.GetType().GetMethod(serviceData["MethodName"].ToString());
-                ParameterInfo[] paramInfos = methodInfo.GetParameters();
-                var parameterType = paramInfos[0].ParameterType;
-                var parameter = compilerResults.CompiledAssembly.CreateInstance(parameterType.FullName, false, BindingFlags.CreateInstance, null, null, null, null);
-
-                if (parameterType.FullName =="System.String")
-                {
-                    parameter = "India";
-                }
-                ////Creating the instance of Paramater type
-                //if (parameter != null)
-                //{
-                //    RecursiveLoad(parameter, testData, compilerResults);
-                //}
                 object[] operationParameters = new object[] { parameter };
                 //Invokes service method and get the result.
                 result = methodInfo.Invoke(proxyInstance, BindingFlags.InvokeMethod, null, operationParameters, null);

@@ -26,8 +26,9 @@ Now call the wsdl proxy by sending parameter "India" to get the cities in the gi
  var res = helper.GetResponse(serviceData, "India");
  
  
- And the res would be 
+ And the res would be (sorry not able to paste the exact response because of formatting done by github.You can check out the wsdl in SOAP UI)
  
+ "
  <NewDataSet>
   <Table>
     <Country>British Indian Ocean Territory</Country>
@@ -281,6 +282,5 @@ Now call the wsdl proxy by sending parameter "India" to get the cities in the gi
     <Country>India</Country>
     <City>Vellore</City>
   </Table>
-</NewDataSet>
-       
+</NewDataSet>"
        
